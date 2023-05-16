@@ -35,6 +35,9 @@ team_t team = {
     ""
 };
 
+// #define FIRST_FIT
+#define NEXT_FIT
+
 /* single word (4) or double word (8) alignment */
 #define ALIGNMENT 8
 
@@ -70,6 +73,9 @@ team_t team = {
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
 
 static void *heap_listp;
+#ifdef NEXT_FIT
+static char *next_fit;
+#endif
 
 /* 
  * mm_init - initialize the malloc package.
@@ -85,7 +91,11 @@ int mm_init(void)
    PUT(heap_listp + (1*WSIZE), PACK(DSIZE, 1));  /* Prologue header */
    PUT(heap_listp + (2*WSIZE), PACK(DSIZE, 1));  /* Prologue footer */
    PUT(heap_listp + (3*WSIZE), PACK(0, 1));      /* Epilogue header */
-   heap_listp += (2*WSIZE);     
+   heap_listp += (2*WSIZE);
+
+#ifdef NEXT_FIT
+    next_fit = heap_listp;
+#endif
 
    /* Extend the empty heap with a free block of CHUNKSIZE bytes*/
    if (extend_heap(CHUNKSIZE/WSIZE) == NULL)
@@ -162,7 +172,30 @@ void *mm_malloc(size_t size)
 
 static void *find_fit(size_t asize)
 {
-    void *bp;   // 시작점
+#ifdef NEXT_FIT
+    /* Next fit search */
+    char *old_bp = next_fit;
+
+    /* Search from the rover to the end of list */
+    for (next_fit = old_bp; GET_SIZE(HDRP(next_fit)) > 0; next_fit = NEXT_BLKP(next_fit))
+    {
+        if (!GET_ALLOC(HDRP(next_fit)) && (asize <= GET_SIZE(HDRP(next_fit))))
+        {
+            return next_fit;
+        }
+    }
+    
+    /* Search from start of list to old rover */
+    for (next_fit = heap_listp; next_fit < old_bp; next_fit = NEXT_BLKP(next_fit))
+    {
+        if (!GET_ALLOC(HDRP(next_fit)) && (asize <= GET_SIZE(HDRP(next_fit))))
+        {
+            return next_fit;
+        }        
+    }
+    return NULL;    /* no fit found*/
+#else
+    void *bp;
 
     for(bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)){
         if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp))))
@@ -171,7 +204,7 @@ static void *find_fit(size_t asize)
         }
     }
     return NULL;
-    //#endif
+#endif
 }
 
 static void place(void *bp, size_t asize)
@@ -236,6 +269,12 @@ static void *coalesce(void *bp)
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
     }
+#ifdef NEXT_FIT
+    if ((next_fit) > (char *)bp && (next_fit < NEXT_BLKP(bp)))
+    {
+        next_fit = bp;
+    }
+#endif
     return bp;
 }
 
