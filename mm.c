@@ -159,6 +159,7 @@ void *mm_malloc(size_t size)
     place(bp, asize);
     return bp;
 }
+
 static void *find_fit(size_t asize)
 {
     void *bp;   // 시작점
@@ -169,9 +170,10 @@ static void *find_fit(size_t asize)
             return bp;
         }
     }
-	return NULL;
+    return NULL;
     //#endif
 }
+
 static void place(void *bp, size_t asize)
 {
     size_t csize = GET_SIZE(HDRP(bp));
@@ -221,7 +223,7 @@ static void *coalesce(void *bp)
     }
 
     else if (!prev_alloc && next_alloc) // case 3
-{
+    {
         size += GET_SIZE(HDRP(PREV_BLKP(bp)));
         PUT(FTRP(bp), PACK(size, 0));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
