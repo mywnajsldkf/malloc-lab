@@ -159,7 +159,19 @@ void *mm_malloc(size_t size)
     place(bp, asize);
     return bp;
 }
+static void *find_fit(size_t asize)
+{
+    void *bp;   // 시작점
+
+    for(bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)){
+        if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp))))
+        {
+            return bp;
+        }
+    }
 	return NULL;
+    //#endif
+}
     else {
         *(size_t *)p = size;
         return (void *)((char *)p + SIZE_T_SIZE);
