@@ -5,8 +5,10 @@ TEAM = bovik
 VERSION = 1
 HANDINDIR = /afs/cs.cmu.edu/academic/class/15213-f01/malloclab/handin
 
-CC = gcc
-CFLAGS = -Wall -O2 -m32
+#CC = gcc
+#CFLAGS = -Wall -O2 -m32
+CC = arm-linux-gnueabihf-gcc
+CFLAGS = -Wall -O2 -mbe32
 
 OBJS = mdriver.o mm.o memlib.o fsecs.o fcyc.o clock.o ftimer.o
 
@@ -26,5 +28,3 @@ handin:
 
 clean:
 	rm -f *~ *.o mdriver
-
-
