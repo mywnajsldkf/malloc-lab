@@ -35,8 +35,8 @@ team_t team = {
     ""
 };
 
-// #define FIRST_FIT
-#define NEXT_FIT
+// #define NEXT_FIT
+#define EXPLICIT
 
 /* single word (4) or double word (8) alignment */
 #define ALIGNMENT 8
@@ -72,7 +72,11 @@ team_t team = {
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
 
+#define SUCP(bp) (*(void **)(bp))
+#define PREP(bp) (*(void **)(bp + WSIZE))
+
 static void *heap_listp;
+static void *free_listp;
 #ifdef NEXT_FIT
 static char *next_fit;
 #endif
@@ -82,7 +86,23 @@ static char *next_fit;
  */
 int mm_init(void)
 {
+#ifdef EXPLICIT
    /* Create the initial empty heap */
+   if ((heap_listp = mem_sbrk(6*WSIZE)) == (void *)-1)  
+   { 
+    return -1;
+   }
+   PUT(heap_listp, 0);                              /* Alignment padding */
+   PUT(heap_listp + (1*WSIZE), PACK(DSIZE*2, 1));   /* Prologue header */
+
+   PUT(heap_listp + (2*WSIZE), (int)NULL);          /* Prologue SUCCESOR, 제일 처음 root 역할*/
+   PUT(heap_listp + (3*WSIZE), (int)NULL);          /* Prologue PREDECCESSOR */
+
+   PUT(heap_listp + (4*WSIZE), PACK(DSIZE*2, 1));   /* Prologue Footer */
+   PUT(heap_listp + (5*WSIZE), PACK(0, 1));         /* Epilogue header*/
+   free_listp = heap_listp + DSIZE;
+#else
+    /* Create the initial empty heap */
    if ((heap_listp = mem_sbrk(4*WSIZE)) == (void *)-1)  
    { 
     return -1;
@@ -92,17 +112,39 @@ int mm_init(void)
    PUT(heap_listp + (2*WSIZE), PACK(DSIZE, 1));  /* Prologue footer */
    PUT(heap_listp + (3*WSIZE), PACK(0, 1));      /* Epilogue header */
    heap_listp += (2*WSIZE);
+#endif
 
 #ifdef NEXT_FIT
     next_fit = heap_listp;
 #endif
-
    /* Extend the empty heap with a free block of CHUNKSIZE bytes*/
    if (extend_heap(CHUNKSIZE/WSIZE) == NULL)
    {
     return -1;
    }
     return 0;
+}
+
+void putFreeBlock(void *bp)
+{
+    PREP(bp) = NULL;
+    SUCP(bp) = free_listp;
+    PREP(free_listp) = bp;
+    free_listp = bp;
+}
+
+void removeBlock(void *bp){
+    // 첫번째 블록을 없앨 경우
+    if (bp == free_listp)
+    {
+        PREP(SUCP(bp)) = NULL;
+        free_listp = SUCP(bp);
+    }
+    // 앞, 뒤 모두 있을 때
+    else {
+        SUCP(PREP(bp)) = SUCP(bp);
+        PREP(SUCP(bp)) = PREP(bp);
+    }
 }
 
 /* extend_heap */
@@ -120,6 +162,7 @@ static void *extend_heap(size_t words)
 
     /* Initialize free blocks header/footer and the epilogue header */
     PUT(HDRP(bp), PACK(size, 0));   /* Free block header */
+
     PUT(FTRP(bp), PACK(size, 0));   /* Free block footer */
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));   /* New epilogue header */
     
@@ -195,6 +238,19 @@ static void *find_fit(size_t asize)
     }
     return NULL;    /* no fit found*/
 #else
+
+    #ifdef EXPLICIT
+    void *bp;
+
+    for(bp = free_listp; GET_ALLOC(HDRP(bp)) != 1; bp = SUCP(bp)){
+        if (asize <= GET_SIZE(HDRP(bp)))
+        {
+            return bp;
+        }
+    }
+    return NULL;
+
+    #else
     void *bp;
 
     for(bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)){
@@ -204,11 +260,32 @@ static void *find_fit(size_t asize)
         }
     }
     return NULL;
+    #endif
+
 #endif
 }
 
 static void place(void *bp, size_t asize)
 {
+#ifdef EXPLICIT    
+    size_t csize = GET_SIZE(HDRP(bp));
+    if ((csize - asize) >= (2*DSIZE))
+    {
+        PUT(HDRP(bp), PACK(asize, 1));
+        PUT(FTRP(bp), PACK(asize, 1));
+        bp = NEXT_BLKP(bp);
+
+        PUT(HDRP(bp), PACK(csize - asize, 0));
+        PUT(FTRP(bp), PACK(csize - asize, 0));
+        removeBlock2(bp);
+    }
+    else
+    {
+        removeBlock(bp);
+        PUT(HDRP(bp), PACK(csize, 1));
+        PUT(FTRP(bp), PACK(csize, 1));
+    }
+#else
     size_t csize = GET_SIZE(HDRP(bp));
 
     if ((csize - asize) >= (2*DSIZE))
@@ -222,6 +299,27 @@ static void place(void *bp, size_t asize)
     else {
         PUT(HDRP(bp), PACK(csize, 1));
         PUT(FTRP(bp), PACK(csize, 1));
+    }
+#endif
+}
+
+void removeBlock2(void *bp)
+{
+    // 첫번째 블록을 없앨 때
+    if (PREV_BLKP(bp) == free_listp)
+    {
+        PREP(SUCP(PREV_BLKP(bp))) = bp;
+        free_listp = bp;
+        SUCP(bp) = SUCP(PREV_BLKP(bp));
+        PREP(bp) = NULL;
+    }
+    // 앞 뒤 모두 있을 때
+    else
+    {
+        SUCP(PREP(PREV_BLKP(bp))) = bp;
+        PREP(SUCP(PREV_BLKP(bp))) = bp;
+        SUCP(bp) = SUCP(PREV_BLKP(bp));
+        PREP(bp) = PREP(PREV_BLKP(bp));
     }
 }
 
@@ -243,6 +341,39 @@ static void *coalesce(void *bp)
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
     size_t size = GET_SIZE(HDRP(bp));
 
+#ifdef EXPLICIT
+    if (prev_alloc && next_alloc)
+    {
+    }
+    if (prev_alloc && !next_alloc)
+    {
+        removeBlock(NEXT_BLKP(bp));
+        size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
+        PUT(HDRP(bp), PACK(size, 0));
+        PUT(FTRP(bp), PACK(size, 0));
+    }
+
+    else if (!prev_alloc && next_alloc)
+    {
+        removeBlock(PREV_BLKP(bp));
+        size += GET_SIZE(HDRP(PREV_BLKP(bp)));
+        PUT(FTRP(bp), PACK(size, 0));
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
+        bp = PREV_BLKP(bp);
+    }
+
+    else if (!prev_alloc && !next_alloc)
+    {
+        removeBlock(PREV_BLKP(bp));
+        removeBlock(NEXT_BLKP(bp));
+        size += GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(FTRP(NEXT_BLKP(bp)));
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
+        PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
+        bp = PREV_BLKP(bp);
+    }
+    putFreeBlock(bp);
+    
+#else
     if (prev_alloc && next_alloc)   // case1
     {
         return bp;
@@ -269,12 +400,15 @@ static void *coalesce(void *bp)
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
     }
-#ifdef NEXT_FIT
+    #ifdef NEXT_FIT
     if ((next_fit) > (char *)bp && (next_fit < NEXT_BLKP(bp)))
     {
         next_fit = bp;
     }
+    #endif
+
 #endif
+
     return bp;
 }
 
@@ -292,8 +426,10 @@ void *mm_realloc(void *ptr, size_t size)
       return NULL;
     //copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
     copySize = GET_SIZE(HDRP(oldptr));
+
     if (size < copySize)
       copySize = size;
+
     memcpy(newptr, oldptr, copySize);
     mm_free(oldptr);
     return newptr;
